@@ -1,0 +1,55 @@
+# Fork-only: reproduce the single red check seen on oqs-provider#860 —
+# linux_baseline with OQS_LIBJADE_BUILD=ON (oqs_test_multi_thread abort).
+# Not used by upstream; workflow_dispatch only.
+name: Investigate baseline libjade ON
+on:
+  workflow_dispatch:
+    inputs:
+      libjade_build:
+        description: "OQS_LIBJADE_BUILD value"
+        required: true
+        default: "ON"
+        type: choice
+        options:
+          - "ON"
+          - "OFF"
+      run_only_multi_thread:
+        description: "After full build, run only oqs_test_multi_thread (ctest -R)"
+        required: true
+        default: false
+        type: boolean
+
+jobs:
+  baseline_libjade:
+    name: "baseline libjade=${{ inputs.libjade_build }}"
+    runs-on: ubuntu-latest
+    container:
+      image: openquantumsafe/ci-ubuntu-jammy@sha256:a4195181536916bb79e0e309b57fd5d9df20a3eee8f500da6caae9e355ba8807
+    env:
+      MAKE_PARAMS: "-j 18"
+      LIBOQS_BRANCH: "main"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Full build (baseline + libjade matrix cell)
+        run: |
+          echo "OQS_LIBJADE_BUILD=${{ inputs.libjade_build }}"
+          OQSPROV_CMAKE_PARAMS= OQS_LIBJADE_BUILD=${{ inputs.libjade_build }} ./scripts/fullbuild.sh
+
+      - name: Test (full runtests or multi_thread only)
+        run: |
+          if [ "${{ inputs.run_only_multi_thread }}" = "true" ]; then
+            # Match ctest invocation used inside runtests for this binary.
+            export OPENSSL_MODULES="${PWD}/_build/lib"
+            # Resolve relative OPENSSL_MODULES like #865 when scripts cd.
+            OPENSSL_MODULES="$(cd "${OPENSSL_MODULES}" && pwd)"
+            export OPENSSL_MODULES
+            export OPENSSL_CONF="${PWD}/scripts/openssl-ca.cnf"
+            cd _build
+            ctest -V -R 'oqs_multi_thread' --output-on-failure
+          else
+            ./scripts/runtests.sh -V
+          fi
