@@ -100,6 +100,7 @@ int main(int argc, char *argv[]) {
     // reference: registration in a process not yet using the provider
     T((libctx = OSSL_LIB_CTX_new()) != NULL);
     T((algcount = count_oqs_provider_algs(libctx)) > 0);
+    fprintf(stderr, "OQS874TEST: ref=%d\n", algcount);
     OSSL_LIB_CTX_free(libctx);
 
     for (i = 0; i < NUM_THREADS; i++)
@@ -109,6 +110,7 @@ int main(int argc, char *argv[]) {
         T(thread_join(threads[i]));
 
     for (i = 0; i < NUM_THREADS; i++) {
+        fprintf(stderr, "OQS874TEST: thread %d count=%d\n", i, tctx[i].algcount);
         if (tctx[i].algcount != algcount) {
             fprintf(stderr,
                     cRED " thread %d: %d of %d algorithms available" cNORM "\n",

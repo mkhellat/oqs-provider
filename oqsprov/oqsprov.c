@@ -1685,6 +1685,9 @@ int OQS_PROVIDER_ENTRYPOINT_NAME(const OSSL_CORE_HANDLE *handle,
      * a call into the core.
      */
     disabled = sk_OPENSSL_STRING_dup(rt_disabled_algs);
+    if (getenv("OQS874DIAG"))
+        fprintf(stderr, "OQS874: version_disable=%d rt_loaded=%d\n",
+                sk_OPENSSL_STRING_num(rt_disabled_algs), rt_loaded);
     CRYPTO_THREAD_unlock(rt_lock);
     failed = sk_OPENSSL_STRING_new_null();
     if (disabled == NULL || failed == NULL)
@@ -1776,21 +1779,19 @@ int OQS_PROVIDER_ENTRYPOINT_NAME(const OSSL_CORE_HANDLE *handle,
     for (i = 0; i < sk_OPENSSL_STRING_num(failed); i++)
         sk_OPENSSL_STRING_push(rt_disabled_algs,
                                sk_OPENSSL_STRING_value(failed, i));
+    if (getenv("OQS874DIAG")) {
+        fprintf(stderr, "OQS874: failed_oid=%d disabled_total=%d\n",
+                sk_OPENSSL_STRING_num(failed),
+                sk_OPENSSL_STRING_num(rt_disabled_algs));
+        for (i = 0; i < sk_OPENSSL_STRING_num(failed); i++)
+            fprintf(stderr, "OQS874: failed[%d]=%s\n", i,
+                    sk_OPENSSL_STRING_value(failed, i));
+    }
     // OpenSSL 3.4.0 onwards includes sign/verify message API
     if (strcmp("3.4.0", ossl_versionp) <= 0) {
         oqs_sig_activate_message_api();
     }
     CRYPTO_THREAD_unlock(rt_lock);
-
-    // output disabled algs:
-    /*
-    fprintf(stderr, "disabled algs: %p (cnt: %d)\n", rt_disabled_algs,
-    sk_OPENSSL_STRING_num(rt_disabled_algs));
-    for (int i = 0; i < sk_OPENSSL_STRING_num(rt_disabled_algs); ++i) {
-      fprintf(stderr, "Disabled alg #%d: %s in OpenSSL version %s\n", i,
-    sk_OPENSSL_STRING_value(rt_disabled_algs, i), ossl_versionp);
-    }
-    */
 
     // if libctx not yet existing, create a new one
     if (((corebiometh = oqs_bio_prov_init_bio_method()) == NULL) ||

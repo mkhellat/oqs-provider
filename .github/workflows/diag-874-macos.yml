@@ -1,0 +1,116 @@
+# Fork-only diagnostic for https://github.com/open-quantum-safe/oqs-provider/issues/874
+# macOS + OpenSSL master, full liboqs alg set (not STD-only), multi_thread with OQS874DIAG.
+name: Diag 874 macOS OpenSSL4
+
+on:
+  workflow_dispatch:
+    inputs:
+      openssl_ref:
+        description: OpenSSL git ref
+        required: true
+        default: master
+      runs:
+        description: How many times to run oqs_multi_thread
+        required: true
+        default: "20"
+
+permissions:
+  contents: read
+
+jobs:
+  macos-full-algs:
+    name: macOS full-algs multi_thread diag
+    runs-on: macos-15
+    env:
+      MAKE_PARAMS: -j 4
+      OQS874DIAG: "1"
+    steps:
+      - name: Checkout provider
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Checkout openssl
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          set-safe-directory: true
+          repository: openssl/openssl
+          path: openssl
+          ref: ${{ inputs.openssl_ref }}
+
+      - name: Checkout liboqs
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          set-safe-directory: true
+          repository: open-quantum-safe/liboqs
+          ref: main
+          path: liboqs
+
+      - name: Build OpenSSL
+        run: |
+          ./config --prefix="${GITHUB_WORKSPACE}/.localopenssl" no-tests
+          make $MAKE_PARAMS
+          make install_sw install_ssldirs
+        working-directory: openssl
+
+      - name: Build liboqs (full default alg set)
+        run: |
+          cmake -DOPENSSL_ROOT_DIR="${GITHUB_WORKSPACE}/.localopenssl" \
+                -DCMAKE_INSTALL_PREFIX="${GITHUB_WORKSPACE}/.localliboqs" \
+                -S . -B _build
+          cmake --build _build --parallel 4
+          cmake --install _build
+        working-directory: liboqs
+
+      - name: Build oqs-provider
+        run: |
+          liboqs_DIR="${GITHUB_WORKSPACE}/.localliboqs" \
+            cmake -DOPENSSL_ROOT_DIR="${GITHUB_WORKSPACE}/.localopenssl" \
+                  -S . -B _build
+          cmake --build _build --parallel 4
+
+      - name: OpenSSL version and providers
+        run: |
+          export PATH="${GITHUB_WORKSPACE}/.localopenssl/bin:$PATH"
+          export OPENSSL_MODULES="${GITHUB_WORKSPACE}/_build/lib"
+          export DYLD_LIBRARY_PATH="${GITHUB_WORKSPACE}/.localopenssl/lib:${DYLD_LIBRARY_PATH:-}"
+          openssl version
+          openssl list -providers -provider oqsprovider -provider default
+
+      - name: Run oqs_multi_thread repeatedly
+        run: |
+          export PATH="${GITHUB_WORKSPACE}/.localopenssl/bin:$PATH"
+          export OPENSSL_MODULES="${GITHUB_WORKSPACE}/_build/lib"
+          export DYLD_LIBRARY_PATH="${GITHUB_WORKSPACE}/.localopenssl/lib:${DYLD_LIBRARY_PATH:-}"
+          export OQS874DIAG=1
+          CNF="${GITHUB_WORKSPACE}/test/oqs.cnf"
+          BIN="${GITHUB_WORKSPACE}/_build/test/oqs_test_multi_thread"
+          mkdir -p diag-out
+          ok=0
+          bad=0
+          for i in $(seq 1 ${{ inputs.runs }}); do
+            echo "===== run $i =====" | tee -a diag-out/multi_thread.log
+            set +e
+            "$BIN" oqsprovider "$CNF" >>diag-out/multi_thread.log 2>&1
+            ec=$?
+            set -e
+            echo "exit=$ec" | tee -a diag-out/multi_thread.log
+            if [ "$ec" -eq 0 ]; then ok=$((ok+1)); else bad=$((bad+1)); fi
+          done
+          echo "SUMMARY ok=$ok bad=$bad" | tee -a diag-out/multi_thread.log
+          # Also one ctest invocation for the stock runner path
+          (cd _build && ctest -V -R oqs_multi_thread) 2>&1 | tee diag-out/ctest_multi_thread.log
+          # Extract compact summary
+          {
+            echo "### compact"
+            grep -E 'OQS874|OQS874TEST|thread .* of|Test passed|Test failed|SUMMARY' diag-out/multi_thread.log | head -n 200
+          } | tee diag-out/compact.txt
+
+      - name: Upload diag logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: diag-874-macos-${{ inputs.openssl_ref }}
+          path: diag-out/
