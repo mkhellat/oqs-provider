@@ -3,6 +3,10 @@
 name: Diag 874 macOS OpenSSL4
 
 on:
+  # workflow_dispatch only registers from the repo default branch; push
+  # on this fork branch is enough to run the diag without touching main.
+  push:
+    branches: [diag/874-macos-openssl4]
   workflow_dispatch:
     inputs:
       openssl_ref:
@@ -37,7 +41,7 @@ jobs:
           set-safe-directory: true
           repository: openssl/openssl
           path: openssl
-          ref: ${{ inputs.openssl_ref }}
+          ref: ${{ inputs.openssl_ref || 'master' }}
 
       - name: Checkout liboqs
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -90,7 +94,8 @@ jobs:
           mkdir -p diag-out
           ok=0
           bad=0
-          for i in $(seq 1 ${{ inputs.runs }}); do
+          RUNS="${{ inputs.runs || '20' }}"
+          for i in $(seq 1 "$RUNS"); do
             echo "===== run $i =====" | tee -a diag-out/multi_thread.log
             set +e
             "$BIN" oqsprovider "$CNF" >>diag-out/multi_thread.log 2>&1
@@ -105,12 +110,12 @@ jobs:
           # Extract compact summary
           {
             echo "### compact"
-            grep -E 'OQS874|OQS874TEST|thread .* of|Test passed|Test failed|SUMMARY' diag-out/multi_thread.log | head -n 200
+            grep -E 'OQS874|OQS874TEST|thread .* of|Test passed|Test failed|SUMMARY' diag-out/multi_thread.log | sed -n '1,200p'
           } | tee diag-out/compact.txt
 
       - name: Upload diag logs
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: diag-874-macos-${{ inputs.openssl_ref }}
+          name: diag-874-macos-openssl-master
           path: diag-out/
